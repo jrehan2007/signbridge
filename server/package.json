@@ -8,6 +8,8 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node src/seed/seed.js",
+    "export-models": "node src/seed/models-cli.js export",
+    "import-models": "node src/seed/models-cli.js import",
     "test": "node --test --test-concurrency=1 tests/api.test.js"
   },
   "engines": {

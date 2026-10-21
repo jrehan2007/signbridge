@@ -2,6 +2,7 @@ import { connectDB, disconnectDB } from '../config/db.js';
 import { env } from '../config/env.js';
 import { User, Sign } from '../models/index.js';
 import { SEED_SIGNS } from './signs.data.js';
+import { importSharedModels, migrateDiskModels } from './sharedModels.js';
 
 export async function seed({ log = console.log } = {}) {
   // Make sure all declared indexes exist (unique email, unique word, compound progress index …)
@@ -22,6 +23,9 @@ export async function seed({ log = console.log } = {}) {
   }));
   const result = await Sign.bulkWrite(ops);
   log(`[seed] Signs: ${result.upsertedCount} inserted, ${SEED_SIGNS.length - result.upsertedCount} already present`);
+  // Move any old disk-stored models into MongoDB, then import models from shared-models/
+  await migrateDiskModels({ log });
+  await importSharedModels({ log, createdBy: admin._id });
   return { admin };
 }
 

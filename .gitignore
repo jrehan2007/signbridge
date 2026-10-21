@@ -17,3 +17,6 @@ training/output/
 training/models/
 training/dataset/
 __pycache__/
+
+# vercel
+.vercel

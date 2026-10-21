@@ -1,13 +1,7 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import mongoose from 'mongoose';
 import { ModelVersion } from '../models/index.js';
-import { env } from '../config/env.js';
 import { ApiError } from '../utils/ApiError.js';
-
-const MODELS_DIR = path.join(env.uploadDir, 'models');
-
-const safeName = (name) => path.basename(name).replace(/[^a-zA-Z0-9._-]/g, '_');
+import { safeName, saveFile, openFile, removeVersion } from '../storage/modelStore.js';
 
 /** Best-effort read of the output layer width from a TF.js layers-model topology */
 const outputUnits = (modelJson) => {
@@ -31,8 +25,6 @@ const nextVersion = async () => {
   return `v${maj}.${min}.${pat + 1}`;
 };
 
-const removeTemp = (files = []) => Promise.all(files.map((f) => fs.rm(f.path, { force: true })));
-
 export const getActiveModel = async (_req, res) => {
   const model = await ModelVersion.findOne({ isActive: true }).lean();
   res.json({ success: true, model: model || null });
@@ -48,13 +40,13 @@ export const listModels = async (_req, res) => {
  * version?, valAccuracy?, trainedSamples?, notes?, source?, activate?
  */
 export const uploadModel = async (req, res) => {
-  const files = req.files || [];
-  try {
+  const files = req.files || []; // multer memory storage → f.buffer
+  {
     const modelFile = files.find((f) => safeName(f.originalname) === 'model.json');
     if (!modelFile) throw ApiError.badRequest('model.json is required');
 
     let modelJson;
-    try { modelJson = JSON.parse(await fs.readFile(modelFile.path, 'utf8')); } catch {
+    try { modelJson = JSON.parse(modelFile.buffer.toString('utf8')); } catch {
       throw ApiError.badRequest('model.json is not valid JSON');
     }
     if (!modelJson.modelTopology || !Array.isArray(modelJson.weightsManifest)) {
@@ -75,16 +67,13 @@ export const uploadModel = async (req, res) => {
     const version = req.body.version || (await nextVersion());
     if (await ModelVersion.exists({ version })) throw ApiError.conflict(`Version ${version} already exists`);
 
-    const dir = path.join(MODELS_DIR, version);
-    await fs.mkdir(dir, { recursive: true });
     // Rewrite manifest paths to their sanitised names so the browser can fetch them
     modelJson.weightsManifest.forEach((g) => { g.paths = g.paths.map(safeName); });
-    await fs.writeFile(path.join(dir, 'model.json'), JSON.stringify(modelJson));
+    const wanted = new Set(shardPaths.map(safeName));
+    await saveFile(version, 'model.json', Buffer.from(JSON.stringify(modelJson)));
     for (const f of files) {
       const name = safeName(f.originalname);
-      if (name !== 'model.json' && shardPaths.map(safeName).includes(name)) {
-        await fs.copyFile(f.path, path.join(dir, name));
-      }
+      if (name !== 'model.json' && wanted.has(name)) await saveFile(version, name, f.buffer);
     }
 
     const doc = await ModelVersion.create({
@@ -102,9 +91,22 @@ export const uploadModel = async (req, res) => {
     if (req.body.activate) await activate(doc._id);
     const fresh = await ModelVersion.findById(doc._id).lean();
     res.status(201).json({ success: true, model: fresh });
-  } finally {
-    await removeTemp(files);
   }
+};
+
+/** GET /uploads/models/:version/:file — streams model files from GridFS */
+export const serveModelFile = async (req, res) => {
+  const { version, file } = req.params;
+  if (!/^v\d+\.\d+\.\d+$/.test(version)) throw ApiError.notFound('Model file not found');
+  const f = await openFile(version, file);
+  if (!f) throw ApiError.notFound('Model file not found');
+  res.set({
+    'Content-Type': f.contentType,
+    'Content-Length': String(f.length),
+    // a published version never changes, so browsers/CDN can cache it
+    'Cache-Control': 'public, max-age=604800, immutable',
+  });
+  f.stream.on('error', () => res.destroy()).pipe(res);
 };
 
 async function activate(id) {
@@ -139,6 +141,6 @@ export const deleteModel = async (req, res) => {
   if (!model) throw ApiError.notFound('Model not found');
   if (model.isActive) throw ApiError.badRequest('Activate another model before deleting the active one');
   await model.deleteOne();
-  await fs.rm(path.join(MODELS_DIR, safeName(model.version)), { recursive: true, force: true });
+  await removeVersion(model.version);
   res.json({ success: true, message: `Model ${model.version} deleted` });
 };

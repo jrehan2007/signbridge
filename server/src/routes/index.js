@@ -1,6 +1,4 @@
 import { Router } from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
 import Joi from 'joi';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
@@ -143,11 +141,10 @@ router.patch('/feedback/:id', adminOnly, validate({
 }), h(feedback.updateFeedbackStatus));
 
 /* ---------------------------------------------------------------- Model registry */
-const tmpDir = path.join(env.uploadDir, 'tmp');
-fs.mkdirSync(tmpDir, { recursive: true });
+// Files are kept in memory and written to GridFS (no local disk needed — works on Vercel).
 const upload = multer({
-  dest: tmpDir,
-  limits: { fileSize: 50 * 1024 * 1024, files: 20 },
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 20 },
   fileFilter: (_req, file, cb) => cb(null, /\.(json|bin)$/i.test(file.originalname)),
 });
 const labelsField = Joi.alternatives().try(

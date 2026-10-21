@@ -2,6 +2,7 @@
   "name": "signbridge-isl-translator",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Indian Sign Language (ISL) Translator Web Portal — MERN stack with client-side Edge AI (MediaPipe Hands + TensorFlow.js)",
   "scripts": {
     "install:all": "npm install && npm --prefix server install && npm --prefix client install",

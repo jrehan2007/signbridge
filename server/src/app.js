@@ -11,6 +11,8 @@ import mongoose from 'mongoose';
 import { env } from './config/env.js';
 import apiRoutes from './routes/index.js';
 import { notFound, errorHandler } from './middleware/errorHandler.js';
+import { serveModelFile } from './controllers/model.controller.js';
+import { asyncHandler } from './utils/ApiError.js';
 
 export function createApp() {
   const app = express();
@@ -50,9 +52,8 @@ export function createApp() {
     });
   });
 
-  // TF.js model files published by the model registry
-  fs.mkdirSync(path.join(env.uploadDir, 'models'), { recursive: true });
-  app.use('/uploads/models', express.static(path.join(env.uploadDir, 'models'), { maxAge: env.isProd ? '7d' : 0, fallthrough: false }));
+  // TF.js model files published by the model registry (stored in MongoDB GridFS)
+  app.get('/uploads/models/:version/:file', asyncHandler(serveModelFile));
 
   app.use('/api', apiRoutes);
 
